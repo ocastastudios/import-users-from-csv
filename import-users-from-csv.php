@@ -6,9 +6,9 @@
 Plugin Name: Import Users from CSV
 Plugin URI: http://wordpress.org/extend/plugins/import-users-from-csv/
 Description: Import Users data and metadata from a csv file.
-Version: 1.0.0
-Author: Ulrich Sossou
-Author URI: http://ulrichsossou.com/
+Version: 1.0.2
+Author: Ulrich Sossou modified by Ocasta
+Author URI: http://ulrichsossou.com/ and http://ocasta.co/
 License: GPL2
 Text Domain: import-users-from-csv
 */
@@ -42,15 +42,17 @@ class IS_IU_Import_Users {
 	private static $log_dir_path = '';
 	private static $log_dir_url  = '';
 
+	function __construct() {
+                add_action( 'admin_menu', array( $this, 'add_admin_pages' ) );
+                add_action( 'init', array( $this, 'process_csv' ) );
+	}
+
 	/**
 	 * Initialization
 	 *
 	 * @since 0.1
 	 **/
 	public function init() {
-		add_action( 'admin_menu', array( __CLASS__, 'add_admin_pages' ) );
-		add_action( 'init', array( __CLASS__, 'process_csv' ) );
-
 		$upload_dir = wp_upload_dir();
 		self::$log_dir_path = trailingslashit( $upload_dir['basedir'] );
 		self::$log_dir_url  = trailingslashit( $upload_dir['baseurl'] );
@@ -74,7 +76,7 @@ class IS_IU_Import_Users {
 		if ( isset( $_POST['_wpnonce-is-iu-import-users-users-page_import'] ) ) {
 			check_admin_referer( 'is-iu-import-users-users-page_import', '_wpnonce-is-iu-import-users-users-page_import' );
 
-			if ( !empty( $_FILES['users_csv']['tmp_name'] ) ) {
+			if ( isset( $_FILES['users_csv']['tmp_name'] ) ) {
 				// Setup settings variables
 				$filename              = $_FILES['users_csv']['tmp_name'];
 				$password_nag          = isset( $_POST['password_nag'] ) ? $_POST['password_nag'] : false;
@@ -231,113 +233,114 @@ class IS_IU_Import_Users {
 		include( plugin_dir_path( __FILE__ ) . 'class-readcsv.php' );
 
 		// Loop through the file lines
-		$file_handle = @fopen( $filename, 'r' );
-		if($file_handle) {
-			$csv_reader = new ReadCSV( $file_handle, IS_IU_CSV_DELIMITER, "\xEF\xBB\xBF" ); // Skip any UTF-8 byte order mark.
+    $file_handle = @fopen( $filename, 'r' );
+      if($file_handle) {
+      $csv_reader = new ReadCSV( $file_handle, IS_IU_CSV_DELIMITER, "\xEF\xBB\xBF" ); // Skip any UTF-8 byte order mark.
 
-			$first = true;
-			$rkey = 0;
-			while ( ( $line = $csv_reader->get_row() ) !== NULL ) {
+      $first = true;
+      $rkey = 0;
+      while ( ( $line = $csv_reader->get_row() ) !== NULL ) {
 
-				// If the first line is empty, abort
-				// If another line is empty, just skip it
-				if ( empty( $line ) ) {
-					if ( $first )
-						break;
-					else
-						continue;
-				}
+        // If the first line is empty, abort
+        // If another line is empty, just skip it
+        if ( empty( $line ) ) {
+          if ( $first )
+            break;
+          else
+            continue;
+        }
 
-				// If we are on the first line, the columns are the headers
-				if ( $first ) {
-					$headers = $line;
-					$first = false;
-					continue;
-				}
+        // If we are on the first line, the columns are the headers
+        if ( $first ) {
+          $headers = $line;
+          $first = false;
+          continue;
+        }
 
-				// Separate user data from meta
-				$userdata = $usermeta = array();
-				foreach ( $line as $ckey => $column ) {
-					$column_name = $headers[$ckey];
-					$column = trim( $column );
+        // Separate user data from meta
+        $userdata = $usermeta = array();
+        foreach ( $line as $ckey => $column ) {
+          $column_name = $headers[$ckey];
+          $column = trim( $column );
 
-					if ( in_array( $column_name, $userdata_fields ) ) {
-						$userdata[$column_name] = $column;
-					} else {
-						$usermeta[$column_name] = $column;
-					}
-				}
+          if ( in_array( $column_name, $userdata_fields ) ) {
+            $userdata[$column_name] = $column;
+          } else {
+            $usermeta[$column_name] = $column;
+          }
+        }
 
-				// A plugin may need to filter the data and meta
-				$userdata = apply_filters( 'is_iu_import_userdata', $userdata, $usermeta );
-				$usermeta = apply_filters( 'is_iu_import_usermeta', $usermeta, $userdata );
+        // A plugin may need to filter the data and meta
+        $userdata = apply_filters( 'is_iu_import_userdata', $userdata, $usermeta );
+        $usermeta = apply_filters( 'is_iu_import_usermeta', $usermeta, $userdata );
 
-				// If no user data, bailout!
-				if ( empty( $userdata ) )
-					continue;
+        // If no user data, bailout!
+        if ( empty( $userdata ) )
+          continue;
 
-				// Something to be done before importing one user?
-				do_action( 'is_iu_pre_user_import', $userdata, $usermeta );
+        // Something to be done before importing one user?
+        do_action( 'is_iu_pre_user_import', $userdata, $usermeta );
 
-				$user = $user_id = false;
+        $user = $user_id = false;
 
-				if ( isset( $userdata['ID'] ) )
-					$user = get_user_by( 'ID', $userdata['ID'] );
+        if ( isset( $userdata['ID'] ) )
+          $user = get_user_by( 'ID', $userdata['ID'] );
 
-				if ( ! $user && $users_update ) {
-					if ( isset( $userdata['user_login'] ) )
-						$user = get_user_by( 'login', $userdata['user_login'] );
+        if ( ! $user && $users_update ) {
+          if ( isset( $userdata['user_login'] ) )
+            $user = get_user_by( 'login', $userdata['user_login'] );
 
-					if ( ! $user && isset( $userdata['user_email'] ) )
-						$user = get_user_by( 'email', $userdata['user_email'] );
-				}
+          if ( ! $user && isset( $userdata['user_email'] ) )
+            $user = get_user_by( 'email', $userdata['user_email'] );
+        }
 
-				$update = false;
-				if ( $user ) {
-					$userdata['ID'] = $user->ID;
-					$update = true;
-				}
+        $update = false;
+        if ( $user ) {
+          $userdata['ID'] = $user->ID;
+          $update = true;
+        }
 
-				// If creating a new user and no password was set, let auto-generate one!
-				if ( ! $update && empty( $userdata['user_pass'] ) )
-					$userdata['user_pass'] = wp_generate_password( 12, false );
+        // If creating a new user and no password was set, let auto-generate one!
+        if ( ! $update && empty( $userdata['user_pass'] ) )
+          $userdata['user_pass'] = wp_generate_password( 12, false );
 
-				if ( $update )
-					$user_id = wp_update_user( $userdata );
-				else
-					$user_id = wp_insert_user( $userdata );
+        if ( $update )
+          $user_id = wp_update_user( $userdata );
+        else
+          $user_id = wp_insert_user( $userdata );
 
-				// Is there an error o_O?
-				if ( is_wp_error( $user_id ) ) {
-					$errors[$rkey] = $user_id;
-				} else {
-					// If no error, let's update the user meta too!
-					if ( $usermeta ) {
-						foreach ( $usermeta as $metakey => $metavalue ) {
-							$metavalue = maybe_unserialize( $metavalue );
-							update_user_meta( $user_id, $metakey, $metavalue );
-						}
-					}
+        // Is there an error o_O?
+        if ( is_wp_error( $user_id ) ) {
+            $msg = $userdata['ID'].' '.$userdata['display_name'].$user_id->get_error_message();
+          $errors[$rkey] = $msg;
+        } else {
+          // If no error, let's update the user meta too!
+          if ( $usermeta ) {
+            foreach ( $usermeta as $metakey => $metavalue ) {
+              $metavalue = maybe_unserialize( $metavalue );
+              update_user_meta( $user_id, $metakey, $metavalue );
+            }
+          }
 
-					// If we created a new user, maybe set password nag and send new user notification?
-					if ( ! $update ) {
-						if ( $password_nag )
-							update_user_option( $user_id, 'default_password_nag', true, true );
+          // If we created a new user, maybe set password nag and send new user notification?
+          if ( ! $update ) {
+            if ( $password_nag )
+              update_user_option( $user_id, 'default_password_nag', true, true );
 
-						if ( $new_user_notification )
-							wp_new_user_notification( $user_id, $userdata['user_pass'] );
-					}
+            if ( $new_user_notification )
+              wp_new_user_notification( $user_id, null, 'both' );
+          }
 
-					// Some plugins may need to do things after one user has been imported. Who know?
-					do_action( 'is_iu_post_user_import', $user_id );
+          // Some plugins may need to do things after one user has been imported. Who know?
+          do_action( 'is_iu_post_user_import', $user_id );
 
-					$user_ids[] = $user_id;
-				}
+          $user_ids[] = $user_id;
+        }
 
-				$rkey++;
-			}
-			fclose( $file_handle );
-		} else {
+        $rkey++;
+      }
+      fclose( $file_handle );
+	  } else {
 			$errors[] = new WP_Error('file_read', 'Unable to open CSV file.');
 		}
 
@@ -367,12 +370,17 @@ class IS_IU_Import_Users {
 
 		foreach ( $errors as $key => $error ) {
 			$line = $key + 1;
-			$message = $error->get_error_message();
-			@fwrite( $log, sprintf( __( '[Line %1$s] %2$s' , 'import-users-from-csv'), $line, $message ) . "\n" );
+			@fwrite( $log, sprintf( __( '[Line %1$s] %2$s' , 'import-users-from-csv'), $line, $error ) . "\n" );
 		}
 
 		@fclose( $log );
 	}
 }
 
-IS_IU_Import_Users::init();
+// Define CLI command
+
+if ( defined('WP_CLI') && WP_CLI ) {
+    include __DIR__ . '/import_cli.php';
+}
+
+$isiu = new IS_IU_Import_Users();
